@@ -1,0 +1,108 @@
+name: northline
+
+services:
+  ecommerce-postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD: shop
+      POSTGRES_DB: shop
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop -d shop"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - shop-data:/var/lib/postgresql/data
+    networks:
+      - shop
+
+  ecommerce-shop-api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      FAULT_INJECTION_ENABLED: ${FAULT_INJECTION_ENABLED:-false}
+      DATABASE_URL: postgresql+psycopg://shop:shop@ecommerce-postgres:5432/shop
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-this-secret}
+      PAYMENT_SERVICE_URL: http://ecommerce-payment-gateway:8000
+      PAYMENT_SHARED_SECRET: ${PAYMENT_SHARED_SECRET:-dev-payment-secret}
+      PAYMENT_TIMEOUT_SECONDS: ${PAYMENT_TIMEOUT_SECONDS:-2}
+      INTERNAL_FAULT_TOKEN: ${INTERNAL_FAULT_TOKEN:-dev-fault-token}
+      OPS_USERNAME: ${OPS_USERNAME:-}
+      OPS_PASSWORD: ${OPS_PASSWORD:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5174,http://localhost:8088}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://host.docker.internal:4317}
+      OTEL_SERVICE_NAME: ecommerce-shop-api
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-development}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-0}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-2}
+      SCENARIO_CATALOGUE_PATH: /srv/scenarios/catalogue.json
+      INVESTIGATION_API_URL: ${INVESTIGATION_API_URL:-http://host.docker.internal:8010}
+    ports:
+      - "8100:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      ecommerce-postgres:
+        condition: service_healthy
+      ecommerce-payment-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+    networks:
+      - shop
+
+  ecommerce-payment-gateway:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["uvicorn", "payment_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      FAULT_INJECTION_ENABLED: ${FAULT_INJECTION_ENABLED:-false}
+      PAYMENT_SHARED_SECRET: ${PAYMENT_SHARED_SECRET:-dev-payment-secret}
+      INTERNAL_FAULT_TOKEN: ${INTERNAL_FAULT_TOKEN:-dev-fault-token}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://host.docker.internal:4317}
+      OTEL_SERVICE_NAME: ecommerce-payment-gateway
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-development}
+      SCENARIO_CATALOGUE_PATH: /srv/scenarios/catalogue.json
+    ports:
+      - "8101:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - shop
+
+  ecommerce-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    ports:
+      - "8088:80"
+    depends_on:
+      - ecommerce-shop-api
+    networks:
+      - shop
+
+volumes:
+  shop-data:
+
+networks:
+  shop:

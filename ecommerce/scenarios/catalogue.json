@@ -1,0 +1,349 @@
+{
+  "safeguards": {
+    "fault_injection_default": false,
+    "allowed_environments": ["development", "testing"],
+    "max_cpu_workers": 2,
+    "max_memory_mb": 96,
+    "max_duration_seconds": 120,
+    "max_requests_per_second": 15,
+    "max_concurrency": 8,
+    "one_experiment_at_a_time": true,
+    "forbidden_capabilities": [
+      "shell",
+      "arbitrary_code",
+      "docker_control",
+      "destructive_infrastructure"
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "cpu_high",
+      "kind": "fault",
+      "title": "High CPU usage",
+      "targets": ["ecommerce-shop-api", "ecommerce-payment-gateway"],
+      "parameters": {
+        "workers": {"type": "int", "min": 1, "max": 2, "default": 1},
+        "duration_seconds": {"type": "int", "min": 10, "max": 120, "default": 45}
+      },
+      "expected_root_cause": "A bounded CPU-burning loop inside the selected service saturated the process and increased request latency.",
+      "expected_symptoms": [
+        "Container CPU usage rises for the selected service",
+        "Request latency increases while the process is still running"
+      ],
+      "telemetry_signals": [
+        "container_cpu_usage_seconds_total for the compose service",
+        "app_http_request_duration_seconds increases",
+        "Traces for the selected service become slower"
+      ]
+    },
+    {
+      "id": "memory_pressure",
+      "kind": "fault",
+      "title": "Memory pressure",
+      "targets": ["ecommerce-shop-api", "ecommerce-payment-gateway"],
+      "parameters": {
+        "memory_mb": {"type": "int", "min": 16, "max": 96, "default": 64},
+        "duration_seconds": {"type": "int", "min": 10, "max": 120, "default": 45}
+      },
+      "expected_root_cause": "The selected service allocated and retained a bounded in-process memory block, raising its working set.",
+      "expected_symptoms": [
+        "Container memory usage steps up and stays elevated until the experiment ends"
+      ],
+      "telemetry_signals": [
+        "container_memory_working_set_bytes for the compose service"
+      ]
+    },
+    {
+      "id": "slow_responses",
+      "kind": "fault",
+      "title": "Slow API responses",
+      "targets": ["ecommerce-shop-api", "ecommerce-payment-gateway"],
+      "parameters": {
+        "delay_ms": {"type": "int", "min": 100, "max": 2500, "default": 800},
+        "duration_seconds": {"type": "int", "min": 10, "max": 120, "default": 45}
+      },
+      "expected_root_cause": "The selected service delayed ordinary HTTP responses before handling them, so latency rose without a traffic surge.",
+      "expected_symptoms": [
+        "Successful responses become uniformly slow",
+        "Error rate stays low unless callers time out"
+      ],
+      "telemetry_signals": [
+        "app_http_request_duration_seconds histogram shifts",
+        "Long server spans in Jaeger"
+      ]
+    },
+    {
+      "id": "elevated_5xx",
+      "kind": "fault",
+      "title": "Elevated HTTP 5xx errors",
+      "targets": ["ecommerce-shop-api", "ecommerce-payment-gateway"],
+      "parameters": {
+        "error_percent": {"type": "int", "min": 10, "max": 100, "default": 50},
+        "duration_seconds": {"type": "int", "min": 10, "max": 120, "default": 45}
+      },
+      "expected_root_cause": "The selected service failed a configured share of customer requests with HTTP 500 before normal handling.",
+      "expected_symptoms": [
+        "Customers see intermittent server errors",
+        "Successful requests are otherwise unchanged"
+      ],
+      "telemetry_signals": [
+        "app_http_error_count_total increases",
+        "HTTP 500 responses in traces and JSON logs"
+      ]
+    },
+    {
+      "id": "db_latency",
+      "kind": "fault",
+      "title": "Database latency",
+      "targets": ["ecommerce-shop-api"],
+      "parameters": {
+        "delay_ms": {"type": "int", "min": 50, "max": 2000, "default": 400},
+        "duration_seconds": {"type": "int", "min": 10, "max": 120, "default": 45}
+      },
+      "expected_root_cause": "SQL statements on the shop database were delayed before execution, slowing every request that touches PostgreSQL.",
+      "expected_symptoms": [
+        "Catalogue, cart, and checkout all slow together",
+        "The payment gateway itself stays fast"
+      ],
+      "telemetry_signals": [
+        "SQLAlchemy spans lengthen",
+        "app_http_request_duration_seconds increases on ecommerce-shop-api"
+      ]
+    },
+    {
+      "id": "db_pool_exhaustion",
+      "kind": "fault",
+      "title": "Database connection pool exhaustion",
+      "targets": ["ecommerce-shop-api"],
+      "parameters": {
+        "connections": {"type": "int", "min": 1, "max": 5, "default": 5},
+        "duration_seconds": {"type": "int", "min": 10, "max": 90, "default": 30}
+      },
+      "expected_root_cause": "The shop API held all of its SQLAlchemy connections, so new requests timed out waiting for the pool.",
+      "expected_symptoms": [
+        "Customer requests fail quickly with a database availability error",
+        "The payment gateway process remains healthy"
+      ],
+      "telemetry_signals": [
+        "ecommerce_db_connections_checked_out stays at the pool size",
+        "app_http_error_count_total increases",
+        "Logs contain database connection pool exhausted"
+      ]
+    },
+    {
+      "id": "payment_timeout",
+      "kind": "fault",
+      "title": "Payment gateway timeout",
+      "targets": ["ecommerce-payment-gateway"],
+      "parameters": {
+        "delay_ms": {"type": "int", "min": 2500, "max": 4000, "default": 3000},
+        "duration_seconds": {"type": "int", "min": 10, "max": 120, "default": 45}
+      },
+      "expected_root_cause": "The payment gateway answered more slowly than the shop API's 2 second payment timeout, so checkout charges timed out.",
+      "expected_symptoms": [
+        "Checkout fails while browsing still works",
+        "Reserved stock is released and the order is marked payment_failed"
+      ],
+      "telemetry_signals": [
+        "Client spans from ecommerce-shop-api to the payment gateway time out",
+        "ecommerce_payment_failure_count and ecommerce_checkout_error_count increase",
+        "Payment gateway spans are longer than the caller timeout"
+      ]
+    },
+    {
+      "id": "payment_failure",
+      "kind": "fault",
+      "title": "Payment gateway failures",
+      "targets": ["ecommerce-payment-gateway"],
+      "parameters": {
+        "error_percent": {"type": "int", "min": 10, "max": 100, "default": 100},
+        "duration_seconds": {"type": "int", "min": 10, "max": 120, "default": 45}
+      },
+      "expected_root_cause": "The payment gateway returned HTTP 502 for a share of charge attempts, and the shop API rolled the checkout back.",
+      "expected_symptoms": [
+        "Checkout fails with a payment error",
+        "Catalogue and cart requests continue to succeed"
+      ],
+      "telemetry_signals": [
+        "HTTP 502 spans on ecommerce-payment-gateway",
+        "ecommerce_payment_failure_count increases",
+        "Shop logs record a payment gateway failure without a catalogue outage"
+      ]
+    },
+    {
+      "id": "inventory_conflict",
+      "kind": "fault",
+      "title": "Inventory conflicts",
+      "targets": ["ecommerce-shop-api"],
+      "parameters": {
+        "duration_seconds": {"type": "int", "min": 10, "max": 120, "default": 45}
+      },
+      "expected_root_cause": "Checkout reservations were rejected as inventory conflicts, so orders were not created and stock totals did not change.",
+      "expected_symptoms": [
+        "Add-to-cart and browsing still work",
+        "Checkout returns HTTP 409"
+      ],
+      "telemetry_signals": [
+        "ecommerce_inventory_conflict_count increases",
+        "ecommerce_checkout_error_count increases",
+        "No matching paid-order span"
+      ]
+    },
+    {
+      "id": "slow_search",
+      "kind": "fault",
+      "title": "Slow product searches",
+      "targets": ["ecommerce-shop-api"],
+      "parameters": {
+        "delay_ms": {"type": "int", "min": 200, "max": 2500, "default": 1000},
+        "duration_seconds": {"type": "int", "min": 10, "max": 120, "default": 45}
+      },
+      "expected_root_cause": "Product search handling was delayed inside the shop API, while product detail and other routes stayed closer to their normal duration.",
+      "expected_symptoms": [
+        "Searches with a query string are slow",
+        "Opening a product by its direct link is comparatively fast"
+      ],
+      "telemetry_signals": [
+        "Slow spans and latency only on GET /products when a search query is present"
+      ]
+    },
+    {
+      "id": "slow_checkout",
+      "kind": "fault",
+      "title": "Slow checkout processing",
+      "targets": ["ecommerce-shop-api"],
+      "parameters": {
+        "delay_ms": {"type": "int", "min": 200, "max": 2500, "default": 1200},
+        "duration_seconds": {"type": "int", "min": 10, "max": 120, "default": 45}
+      },
+      "expected_root_cause": "Checkout processing was delayed inside the shop API before the order transaction finished.",
+      "expected_symptoms": [
+        "Placing an order is slow",
+        "Browsing and search stay responsive"
+      ],
+      "telemetry_signals": [
+        "ecommerce_order_processing_duration increases",
+        "Slow checkout spans with a later successful payment child span"
+      ]
+    },
+    {
+      "id": "service_unavailable",
+      "kind": "fault",
+      "title": "Service unavailability",
+      "targets": ["ecommerce-shop-api", "ecommerce-payment-gateway"],
+      "parameters": {
+        "duration_seconds": {"type": "int", "min": 10, "max": 120, "default": 30}
+      },
+      "expected_root_cause": "The selected service rejected customer traffic with HTTP 503 and was unavailable to its callers.",
+      "expected_symptoms": [
+        "Requests to the selected service fail immediately",
+        "The other service can still answer its own health check"
+      ],
+      "telemetry_signals": [
+        "HTTP 503 responses and app_http_error_count_total on the selected service",
+        "Shop checkout errors when the payment gateway is the target"
+      ]
+    },
+    {
+      "id": "dependency_timeout",
+      "kind": "fault",
+      "title": "Dependency timeout",
+      "targets": ["ecommerce-shop-api"],
+      "parameters": {
+        "delay_ms": {"type": "int", "min": 800, "max": 3000, "default": 1500},
+        "duration_seconds": {"type": "int", "min": 10, "max": 120, "default": 45}
+      },
+      "expected_root_cause": "The shop API gave up waiting for the payment gateway because the gateway's response time exceeded the checkout dependency timeout.",
+      "expected_symptoms": [
+        "Checkout fails with a gateway timeout",
+        "Direct catalogue requests continue to succeed"
+      ],
+      "telemetry_signals": [
+        "Short client timeout spans on ecommerce-shop-api",
+        "Longer charge spans on ecommerce-payment-gateway",
+        "ecommerce_payment_failure_count increases"
+      ]
+    },
+    {
+      "id": "browse_load",
+      "kind": "load",
+      "title": "Browse traffic",
+      "targets": ["ecommerce-shop-api"],
+      "parameters": {
+        "requests_per_second": {"type": "int", "min": 1, "max": 15, "default": 5},
+        "concurrency": {"type": "int", "min": 1, "max": 8, "default": 3},
+        "duration_seconds": {"type": "int", "min": 5, "max": 60, "default": 20}
+      },
+      "expected_root_cause": "Concurrent customers browsing the catalogue increased the shop API request rate. No fault flag was enabled.",
+      "expected_symptoms": [
+        "Request rate rises on catalogue endpoints",
+        "Responses should still succeed unless the service is genuinely saturated"
+      ],
+      "telemetry_signals": [
+        "app_http_request_count_total slope increases on ecommerce-shop-api",
+        "Latency stays near baseline unless the host is actually busy"
+      ]
+    },
+    {
+      "id": "search_load",
+      "kind": "load",
+      "title": "Search traffic",
+      "targets": ["ecommerce-shop-api"],
+      "parameters": {
+        "requests_per_second": {"type": "int", "min": 1, "max": 15, "default": 4},
+        "concurrency": {"type": "int", "min": 1, "max": 8, "default": 3},
+        "duration_seconds": {"type": "int", "min": 5, "max": 60, "default": 20}
+      },
+      "expected_root_cause": "Concurrent product-search traffic increased search request rate and database read time. No fault flag was enabled.",
+      "expected_symptoms": [
+        "GET /products?q= traffic rises",
+        "Search latency reflects real database work"
+      ],
+      "telemetry_signals": [
+        "Request rate and SQL spans for product search",
+        "No injected delay attribute"
+      ]
+    },
+    {
+      "id": "checkout_load",
+      "kind": "load",
+      "title": "Checkout traffic",
+      "targets": ["ecommerce-shop-api"],
+      "parameters": {
+        "requests_per_second": {"type": "int", "min": 1, "max": 5, "default": 2},
+        "concurrency": {"type": "int", "min": 1, "max": 4, "default": 2},
+        "duration_seconds": {"type": "int", "min": 5, "max": 40, "default": 15}
+      },
+      "expected_root_cause": "Concurrent checkout requests from the load-test customer contended for stock and database transactions. Conflicts, if any, come from real inventory updates rather than an injected fault.",
+      "expected_symptoms": [
+        "Paid orders increase",
+        "Studio Tote stock decreases",
+        "HTTP 409 appears only if stock is actually exhausted"
+      ],
+      "telemetry_signals": [
+        "ecommerce_order_processing_duration samples",
+        "Paid order logs and payment approval spans",
+        "Possible genuine inventory conflict logs if stock reaches zero"
+      ]
+    },
+    {
+      "id": "mixed_load",
+      "kind": "load",
+      "title": "Mixed customer traffic",
+      "targets": ["ecommerce-shop-api"],
+      "parameters": {
+        "requests_per_second": {"type": "int", "min": 1, "max": 10, "default": 4},
+        "concurrency": {"type": "int", "min": 1, "max": 6, "default": 3},
+        "duration_seconds": {"type": "int", "min": 5, "max": 45, "default": 20}
+      },
+      "expected_root_cause": "A mix of catalogue reads, searches, and checkouts increased overall shop traffic. No fault flag was enabled.",
+      "expected_symptoms": [
+        "Several customer endpoints show higher request rates together"
+      ],
+      "telemetry_signals": [
+        "app_http_request_count_total across catalogue, search, and checkout",
+        "Order and payment spans only for the checkout portion"
+      ]
+    }
+  ]
+}
