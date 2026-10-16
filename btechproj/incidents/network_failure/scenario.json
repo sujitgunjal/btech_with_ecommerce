@@ -1,0 +1,19 @@
+{
+  "incident_id": "INC-007",
+  "type": "network_failure",
+  "affected_service": "order-service",
+  "start_time": "2026-09-21T15:00:00Z",
+  "end_time": "2026-09-21T15:01:30Z",
+  "expected_root_cause": "Packets on the order-service to product-service network path were dropped while other paths remained healthy.",
+  "expected_symptoms": ["Calls from order-service to product-service time out.", "Order creation returns HTTP 503 responses.", "Direct product-service health and unrelated user-service communication remain successful."],
+  "expected_evidence": ["order-service logs contain product-service timeout or connection failure messages.", "Prometheus HTTP 5xx counters increase for order creation while product-service remains healthy.", "Jaeger traces show successful user-service spans followed by a timed-out product-service client span.", "Direct product-service requests remain successful throughout the incident."],
+  "expected_resolution": "Restore transport on the affected dependency path, then verify dependency connectivity and error rates recover.",
+  "timeline": [
+    {"phase": "baseline", "event": "Capture normal order-service dependency connectivity and error rate."},
+    {"phase": "failure_injection", "event": "Drop packets only from order-service to product-service."},
+    {"phase": "symptoms", "event": "Product dependency calls time out while unrelated network paths remain healthy."},
+    {"phase": "recovery", "event": "Remove the network rules and confirm dependency calls and traces recover."}
+  ],
+  "severity": "HIGH",
+  "simulator": "simulate.py"
+}

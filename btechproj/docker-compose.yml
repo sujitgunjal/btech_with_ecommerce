@@ -1,0 +1,463 @@
+services:
+
+  # ==================================================
+  # USER SERVICE
+  # ==================================================
+
+  user-service:
+    build:
+      context: ./services/user-service
+
+    container_name: user-service
+
+    ports:
+      - "8001:8000"
+
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:1235@postgres:5432/devops_db
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      # The services export with the gRPC OTLP client. FastAPI's own
+      # telemetry would otherwise send HTTP to this same gRPC port.
+      OTEL_TRACES_EXPORTER: none
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+      DEPLOYMENT_ENVIRONMENT: development
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+    networks:
+      - devops-network
+
+
+  # ==================================================
+  # PRODUCT SERVICE
+  # ==================================================
+
+  product-service:
+    build:
+      context: ./services/product-service
+
+    container_name: product-service
+
+    ports:
+      - "8002:8000"
+
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:1235@postgres:5432/devops_db
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      # The services export with the gRPC OTLP client. FastAPI's own
+      # telemetry would otherwise send HTTP to this same gRPC port.
+      OTEL_TRACES_EXPORTER: none
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+      DEPLOYMENT_ENVIRONMENT: development
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+    networks:
+      - devops-network
+
+
+  # ==================================================
+  # ORDER SERVICE
+  # ==================================================
+
+  order-service:
+    build:
+      context: ./services/order-service
+
+    container_name: order-service
+
+    ports:
+      - "8003:8000"
+
+    environment:
+
+      DATABASE_URL: postgresql+psycopg://postgres:1235@postgres:5432/devops_db
+
+      USER_SERVICE_URL: http://user-service:8000
+
+      PRODUCT_SERVICE_URL: http://dependency-proxy:9000
+
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+
+      OTEL_TRACES_EXPORTER: none
+
+      OTEL_METRICS_EXPORTER: none
+
+      OTEL_LOGS_EXPORTER: none
+
+      DEPLOYMENT_ENVIRONMENT: development
+
+      ORDER_SERVICE_VERSION: ${ORDER_SERVICE_VERSION:-v1.3.1}
+
+      INCIDENT_ORDER_FAULT_MODE: ${INCIDENT_ORDER_FAULT_MODE:-none}
+
+    depends_on:
+
+      postgres:
+        condition: service_healthy
+
+      user-service:
+        condition: service_started
+
+      product-service:
+        condition: service_started
+
+      dependency-proxy:
+        condition: service_started
+
+      otel-collector:
+        condition: service_started
+
+    networks:
+      - devops-network
+
+
+  # ==================================================
+  # INCIDENT INVESTIGATION BACKEND
+  # ==================================================
+
+  backend:
+    build:
+      context: ./backend
+
+    container_name: incident-backend
+
+    ports:
+      - "8010:8000"
+
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:1235@postgres:5432/devops_db
+      PROMETHEUS_URL: http://prometheus:9090
+      LOKI_URL: http://loki:3100
+      JAEGER_URL: http://jaeger:16686
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_MODEL: ${LLM_MODEL:-gemma4:31b-cloud}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-3000}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    networks:
+      - devops-network
+
+
+  # ==================================================
+  # POSTGRESQL
+  # ==================================================
+
+  postgres:
+    image: postgres:16
+
+    container_name: devops-postgres
+
+    environment:
+
+      POSTGRES_USER: postgres
+
+      POSTGRES_PASSWORD: 1235
+
+      POSTGRES_DB: devops_db
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+
+      - postgres-data:/var/lib/postgresql/data
+
+    healthcheck:
+
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U postgres -d devops_db"
+        ]
+
+      interval: 5s
+
+      timeout: 5s
+
+      retries: 5
+
+    networks:
+      - devops-network
+
+
+  # ==================================================
+  # OPENTELEMETRY COLLECTOR
+  # ==================================================
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.153.0
+
+    container_name: otel-collector
+
+    command: ["--config=/etc/otelcol-contrib/otel-collector-config.yaml"]
+
+    volumes:
+      - ./observability/otel/otel-collector-config.yaml:/etc/otelcol-contrib/otel-collector-config.yaml:ro
+
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "9464:9464"
+
+    depends_on:
+      jaeger:
+        condition: service_started
+      loki:
+        condition: service_started
+
+    networks:
+      - devops-network
+
+
+  # ==================================================
+  # PROMETHEUS
+  # ==================================================
+
+  prometheus:
+    image: prom/prometheus:v3.13.2
+
+    container_name: prometheus
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+    ports:
+      - "9090:9090"
+
+    depends_on:
+      otel-collector:
+        condition: service_started
+      cadvisor:
+        condition: service_started
+      docker-metrics-exporter:
+        condition: service_started
+
+    networks:
+      - devops-network
+
+
+  # ==================================================
+  # GRAFANA
+  # ==================================================
+
+  grafana:
+    image: grafana/grafana:12.0.2
+
+    container_name: grafana
+
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+    ports:
+      - "3000:3000"
+
+    depends_on:
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+      jaeger:
+        condition: service_started
+
+    networks:
+      - devops-network
+
+
+  # ==================================================
+  # LOKI
+  # ==================================================
+
+  loki:
+    image: grafana/loki:3.5.5
+
+    container_name: loki
+
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+
+    ports:
+      - "3100:3100"
+
+    networks:
+      - devops-network
+
+
+  # ==================================================
+  # JAEGER
+  # ==================================================
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+
+    container_name: jaeger
+
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+    ports:
+      - "16686:16686"
+
+    networks:
+      - devops-network
+
+
+  # ==================================================
+  # CONTAINER RESOURCE METRICS
+  # ==================================================
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+
+    container_name: cadvisor
+
+    privileged: true
+
+    command:
+      - "--docker_only=true"
+
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+
+    ports:
+      - "8080:8080"
+
+    networks:
+      - devops-network
+
+
+  # Docker Desktop's containerd image store is not discoverable by cAdvisor.
+  # This read-only exporter supplies the same CPU/memory metric names.
+  docker-metrics-exporter:
+    image: python:3.13-slim
+
+    container_name: docker-metrics-exporter
+
+    command: ["python", "/exporter/docker-metrics-exporter.py"]
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./observability/docker-metrics-exporter.py:/exporter/docker-metrics-exporter.py:ro
+
+    ports:
+      - "9101:9101"
+
+    networks:
+      - devops-network
+
+
+  dependency-proxy:
+    image: python:3.13-slim
+
+    container_name: dependency-proxy
+
+    command: ["python", "/proxy/dependency-proxy.py"]
+
+    environment:
+      TARGET_HOST: product-service
+      TARGET_PORT: "8000"
+
+    volumes:
+      - ./observability/dependency-proxy.py:/proxy/dependency-proxy.py:ro
+
+    ports:
+      - "9001:9001"
+
+    depends_on:
+      product-service:
+        condition: service_started
+
+    networks:
+      - devops-network
+
+
+  # ==================================================
+  # OPTIONAL CONTINUOUS TRAFFIC
+  # ==================================================
+
+  traffic-generator:
+    image: python:3.13-slim
+
+    container_name: traffic-generator
+
+    profiles: ["traffic"]
+
+    command: ["python", "/traffic/traffic-generator.py"]
+
+    environment:
+      USER_SERVICE_URL: http://user-service:8000
+      PRODUCT_SERVICE_URL: http://product-service:8000
+      ORDER_SERVICE_URL: http://order-service:8000
+
+    volumes:
+      - ./observability/traffic-generator.py:/traffic/traffic-generator.py:ro
+
+    depends_on:
+      order-service:
+        condition: service_started
+
+    networks:
+      - devops-network
+
+
+# ==================================================
+# VOLUMES
+# ==================================================
+
+volumes:
+
+  postgres-data:
+
+  prometheus-data:
+
+  grafana-data:
+
+  loki-data:
+
+
+# ==================================================
+# NETWORK
+# ==================================================
+
+networks:
+
+  devops-network:
+
+    driver: bridge

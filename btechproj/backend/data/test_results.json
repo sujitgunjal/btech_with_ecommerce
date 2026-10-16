@@ -1,0 +1,33 @@
+[
+  {
+    "incident_id": "INC-004",
+    "db_id": 38,
+    "status": "completed",
+    "confidence": 0.7,
+    "evidence_count": 935,
+    "rca_valid": true,
+    "validation_issues": [],
+    "evaluation": {
+      "incident_id": "INC-004",
+      "incident_type": "cpu_spike",
+      "expected_service": "order-service",
+      "expected_root_cause": "A bounded CPU burn workload saturated the order-service container.",
+      "rca_produced": true,
+      "rca_root_cause": "The order-service experienced a critical CPU saturation event, reaching peak usage of 1.0276, which coincided with increased request latency for the POST /orders endpoint.",
+      "rca_confidence": 0.7,
+      "rca_affected_services": [
+        "order-service"
+      ],
+      "service_match": true,
+      "keyword_matches": [
+        "cpu"
+      ],
+      "keyword_match_ratio": 0.25,
+      "historical_incidents_referenced": 1,
+      "historical_ids": [
+        "INC-004"
+      ]
+    },
+    "elapsed_seconds": 10.224430799484253
+  }
+]

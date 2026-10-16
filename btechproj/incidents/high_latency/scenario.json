@@ -1,0 +1,19 @@
+{
+  "incident_id": "INC-003",
+  "type": "high_latency",
+  "affected_service": "order-service",
+  "start_time": "2026-09-21T11:00:00Z",
+  "end_time": "2026-09-21T11:02:00Z",
+  "expected_root_cause": "A bounded transport delay was introduced only on the order-service to product-service dependency path.",
+  "expected_symptoms": ["Order creation remains functional but its response latency increases significantly.", "Slow product-service dependency spans are visible in traces.", "Unrelated user-service and direct product-service requests remain responsive."],
+  "expected_evidence": ["Prometheus request-duration histogram and p95 latency increase for order-service.", "Jaeger traces contain long-running order-service and product-service client spans.", "HTTP order requests complete successfully but more slowly than baseline.", "Direct product-service requests remain at baseline latency."],
+  "expected_resolution": "Restore normal transport behavior on the affected dependency path and verify latency returns to baseline.",
+  "timeline": [
+    {"phase": "baseline", "event": "Capture normal order-service latency and trace durations."},
+    {"phase": "failure_injection", "event": "Apply a bounded transport delay only to the product-service dependency path."},
+    {"phase": "symptoms", "event": "Order latency rises while successful responses and unrelated dependency traffic continue."},
+    {"phase": "recovery", "event": "Remove the tc qdisc and confirm latency and traces recover."}
+  ],
+  "severity": "MEDIUM", 
+  "simulator": "simulate.py"
+}

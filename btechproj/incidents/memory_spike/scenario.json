@@ -1,0 +1,19 @@
+{
+  "incident_id": "INC-005",
+  "type": "memory_spike",
+  "affected_service": "order-service",
+  "start_time": "2026-09-21T13:00:00Z",
+  "end_time": "2026-09-21T13:01:30Z",
+  "expected_root_cause": "A bounded in-container process allocated and touched a large block of memory in order-service.",
+  "expected_symptoms": ["Container memory working set increases sharply.", "Order-service remains available while operating with a substantially larger working set.", "Request latency may increase under host memory pressure."],
+  "expected_evidence": ["cAdvisor container_memory_working_set_bytes rises by approximately the configured allocation for order-service.", "Prometheus retains the elevated working-set plateau throughout the incident.", "Application request telemetry continues during the allocation.", "Docker process inspection shows the temporary memory allocation process."],
+  "expected_resolution": "Terminate the injected allocation process so memory is released; restart order-service only if it was OOM-killed, then verify memory and latency recover.",
+  "timeline": [
+    {"phase": "baseline", "event": "Capture normal order-service memory usage and request latency."},
+    {"phase": "failure_injection", "event": "Start the bounded memory allocation in order-service."},
+    {"phase": "symptoms", "event": "Memory working set rises and request latency may increase or the container may be OOM-killed."},
+    {"phase": "recovery", "event": "Release the allocation and confirm memory and service health recover."}
+  ],
+  "severity": "HIGH",
+  "simulator": "simulate.py"
+}

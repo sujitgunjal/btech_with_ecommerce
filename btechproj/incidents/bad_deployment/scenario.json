@@ -1,0 +1,20 @@
+{
+  "incident_id": "INC-006",
+  "type": "bad_deployment",
+  "affected_service": "order-service",
+  "start_time": "2026-09-20T10:03:00Z",
+  "end_time": "2026-09-20T10:18:00Z",
+  "expected_root_cause": "The v1.3.0 deployment expected an available_stock field that is absent from the product-service response contract.",
+  "expected_symptoms": ["The order creation error rate steps up immediately after deployment.", "Product-service calls succeed but order-service fails while processing their responses.", "Successful requests return after the v1.3.1 rollback deployment."],
+  "expected_evidence": ["deployment_history.json records order-service v1.3.0 at 2026-09-20T10:00:00Z with commit 35e6df3.", "order-service logs contain a KeyError for available_stock after the v1.3.0 deployment.", "Prometheus order-service HTTP 5xx counters step up after deployment and recover after v1.3.1.", "Jaeger traces show successful product dependency spans beneath failed order-service HTTP 500 spans."],
+  "severity": "HIGH",
+  "expected_resolution": "Roll back to the previous order-service version that reads the existing stock response field.",
+  "simulator": "simulate.py",
+  "related_deployment": {"service": "order-service", "version": "v1.3.0", "commit_id": "35e6df3"},
+  "timeline": [
+    {"phase": "baseline", "event": "Capture the stable v1.2.0 order-service error rate and dependency latency."},
+    {"phase": "failure_injection", "event": "Deploy order-service v1.3.0 with the incompatible product response contract."},
+    {"phase": "symptoms", "event": "Order creation errors and response-processing exceptions begin after deployment."},
+    {"phase": "recovery", "event": "Roll back order-service and confirm successful dependency calls return."}
+  ]
+}

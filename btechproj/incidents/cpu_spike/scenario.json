@@ -1,0 +1,19 @@
+{
+  "incident_id": "INC-004",
+  "type": "cpu_spike",
+  "affected_service": "order-service",
+  "start_time": "2026-09-21T12:00:00Z",
+  "end_time": "2026-09-21T12:01:30Z",
+  "expected_root_cause": "A bounded CPU burn workload saturated the order-service container.",
+  "expected_symptoms": ["Container CPU usage rises sharply.", "Order request latency increases and CPU throttling may occur.", "No deployment event precedes the resource spike."],
+  "expected_evidence": ["cAdvisor container_cpu_usage_seconds_total rises sharply for order-service.", "Container CPU throttling metrics may increase when limits are configured.", "Prometheus request-duration metrics increase while CPU is saturated.", "Docker process inspection shows the bounded CPU burn process in order-service."],
+  "expected_resolution": "Stop the injected bounded CPU burn process and confirm the process exits, CPU usage drops, and order latency returns to baseline.",
+  "timeline": [
+    {"phase": "baseline", "event": "Capture normal order-service CPU usage and request latency."},
+    {"phase": "failure_injection", "event": "Start the bounded CPU burn workload in order-service."},
+    {"phase": "symptoms", "event": "Container CPU usage spikes and request latency increases."},
+    {"phase": "recovery", "event": "Stop the injected workload and verify CPU and latency recover."}
+  ],
+  "severity": "MEDIUM",
+  "simulator": "simulate.py"
+}

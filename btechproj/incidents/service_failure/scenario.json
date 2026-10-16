@@ -1,0 +1,19 @@
+{
+  "incident_id": "INC-002",
+  "type": "service_failure",
+  "affected_service": "product-service",
+  "start_time": "2026-09-21T10:00:00Z",
+  "end_time": "2026-09-21T10:01:30Z",
+  "expected_root_cause": "The product-service process was unresponsive because its container was paused.",
+  "expected_symptoms": ["order-service returns 503 responses for order creation requests.", "Connection failures to product-service appear in order-service logs.", "Dependency spans for product-service are absent or fail."],
+  "expected_evidence": ["Docker events show product-service paused and later unpaused.", "order-service logs contain product-service connection failures.", "Prometheus HTTP 5xx counters increase for order creation requests.", "Jaeger traces show failed or missing product-service dependency spans."],
+  "expected_resolution": "Safely unpause the product-service container and verify its health endpoint, order-service dependency calls, and error rate recover.",
+  "timeline": [
+    {"phase": "baseline", "event": "Capture healthy product-service calls and order creation metrics."},
+    {"phase": "failure_injection", "event": "Pause the product-service container."},
+    {"phase": "symptoms", "event": "order-service dependency calls fail and order creation returns 503 responses."},
+    {"phase": "recovery", "event": "Unpause product-service and confirm successful dependency calls resume."}
+  ],
+  "severity": "HIGH",
+  "simulator": "simulate.py"
+}

@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg[binary]
+httpx
+pydantic-settings
+pytest
+pytest-asyncio
+# Do not add torch here. The Dockerfile installs the CPU-only wheel first.
+# A normal pip torch install on Linux pulls NVIDIA CUDA packages.
+sentence-transformers
+chromadb
+openai

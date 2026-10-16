@@ -1,0 +1,89 @@
+[
+  {
+    "id": "INC-006",
+    "text": "Historical DevOps Incident\n\nIncident ID: INC-006\n\nIncident Type: bad_deployment\n\nAffected Service: order-service\n\nSeverity: HIGH\n\nIncident Time:\n- Start: 2026-09-20T10:03:00Z\n- End: 2026-09-20T10:18:00Z\n\nRoot Cause:\nThe v1.3.0 deployment expected an available_stock field that is absent from the product-service response contract.\n\nSymptoms:\n- The order creation error rate steps up immediately after deployment.\n- Product-service calls succeed but order-service fails while processing their responses.\n- Successful requests return after the v1.3.1 rollback deployment.\n\nExpected Evidence:\n- deployment_history.json records order-service v1.3.0 at 2026-09-20T10:00:00Z with commit 35e6df3.\n- order-service logs contain a KeyError for available_stock after the v1.3.0 deployment.\n- Prometheus order-service HTTP 5xx counters step up after deployment and recover after v1.3.1.\n- Jaeger traces show successful product dependency spans beneath failed order-service HTTP 500 spans.\n\nResolution:\nRoll back to the previous order-service version that reads the existing stock response field.\n\nTimeline:\n- baseline: Capture the stable v1.2.0 order-service error rate and dependency latency.\n- failure_injection: Deploy order-service v1.3.0 with the incompatible product response contract.\n- symptoms: Order creation errors and response-processing exceptions begin after deployment.\n- recovery: Roll back order-service and confirm successful dependency calls return.\n\n\nRelated Deployment:\n- Service: order-service\n- Version: v1.3.0\n- Commit: 35e6df3",
+    "metadata": {
+      "incident_id": "INC-006",
+      "incident_type": "bad_deployment",
+      "affected_service": "order-service",
+      "severity": "HIGH",
+      "start_time": "2026-09-20T10:03:00Z",
+      "end_time": "2026-09-20T10:18:00Z",
+      "deployment_service": "order-service",
+      "deployment_version": "v1.3.0",
+      "commit_id": "35e6df3"
+    }
+  },
+  {
+    "id": "INC-004",
+    "text": "Historical DevOps Incident\n\nIncident ID: INC-004\n\nIncident Type: cpu_spike\n\nAffected Service: order-service\n\nSeverity: MEDIUM\n\nIncident Time:\n- Start: 2026-09-21T12:00:00Z\n- End: 2026-09-21T12:01:30Z\n\nRoot Cause:\nA bounded CPU burn workload saturated the order-service container.\n\nSymptoms:\n- Container CPU usage rises sharply.\n- Order request latency increases and CPU throttling may occur.\n- No deployment event precedes the resource spike.\n\nExpected Evidence:\n- cAdvisor container_cpu_usage_seconds_total rises sharply for order-service.\n- Container CPU throttling metrics may increase when limits are configured.\n- Prometheus request-duration metrics increase while CPU is saturated.\n- Docker process inspection shows the bounded CPU burn process in order-service.\n\nResolution:\nStop the injected bounded CPU burn process and confirm the process exits, CPU usage drops, and order latency returns to baseline.\n\nTimeline:\n- baseline: Capture normal order-service CPU usage and request latency.\n- failure_injection: Start the bounded CPU burn workload in order-service.\n- symptoms: Container CPU usage spikes and request latency increases.\n- recovery: Stop the injected workload and verify CPU and latency recover.",
+    "metadata": {
+      "incident_id": "INC-004",
+      "incident_type": "cpu_spike",
+      "affected_service": "order-service",
+      "severity": "MEDIUM",
+      "start_time": "2026-09-21T12:00:00Z",
+      "end_time": "2026-09-21T12:01:30Z"
+    }
+  },
+  {
+    "id": "INC-001",
+    "text": "Historical DevOps Incident\n\nIncident ID: INC-001\n\nIncident Type: database_failure\n\nAffected Service: postgres\n\nSeverity: CRITICAL\n\nIncident Time:\n- Start: 2026-09-21T09:00:00Z\n- End: 2026-09-21T09:02:00Z\n\nRoot Cause:\nPostgreSQL became unavailable after its container was paused.\n\nSymptoms:\n- Dependent services return HTTP 500 or 503 responses.\n- Database connection errors and OperationalError log messages increase.\n- Request latency rises while clients wait for database connections.\n\nExpected Evidence:\n- Docker events show the postgres container paused and later unpaused.\n- Dependent-service logs contain database connection failures or OperationalError messages.\n- Prometheus HTTP 5xx counters and request-duration metrics increase.\n- Jaeger traces contain failed database spans.\n\nResolution:\nSafely unpause the postgres container; do not delete or recreate its volume. Verify dependent-service health checks and error rates return to baseline.\n\nTimeline:\n- baseline: Capture normal database connectivity, request latency, and error-rate metrics.\n- failure_injection: Pause the postgres container.\n- symptoms: Dependent requests begin failing or waiting for database connections.\n- recovery: Unpause postgres and confirm application errors and latency recover.",
+    "metadata": {
+      "incident_id": "INC-001",
+      "incident_type": "database_failure",
+      "affected_service": "postgres",
+      "severity": "CRITICAL",
+      "start_time": "2026-09-21T09:00:00Z",
+      "end_time": "2026-09-21T09:02:00Z"
+    }
+  },
+  {
+    "id": "INC-003",
+    "text": "Historical DevOps Incident\n\nIncident ID: INC-003\n\nIncident Type: high_latency\n\nAffected Service: order-service\n\nSeverity: MEDIUM\n\nIncident Time:\n- Start: 2026-09-21T11:00:00Z\n- End: 2026-09-21T11:02:00Z\n\nRoot Cause:\nA bounded transport delay was introduced only on the order-service to product-service dependency path.\n\nSymptoms:\n- Order creation remains functional but its response latency increases significantly.\n- Slow product-service dependency spans are visible in traces.\n- Unrelated user-service and direct product-service requests remain responsive.\n\nExpected Evidence:\n- Prometheus request-duration histogram and p95 latency increase for order-service.\n- Jaeger traces contain long-running order-service and product-service client spans.\n- HTTP order requests complete successfully but more slowly than baseline.\n- Direct product-service requests remain at baseline latency.\n\nResolution:\nRestore normal transport behavior on the affected dependency path and verify latency returns to baseline.\n\nTimeline:\n- baseline: Capture normal order-service latency and trace durations.\n- failure_injection: Apply a bounded transport delay only to the product-service dependency path.\n- symptoms: Order latency rises while successful responses and unrelated dependency traffic continue.\n- recovery: Remove the tc qdisc and confirm latency and traces recover.",
+    "metadata": {
+      "incident_id": "INC-003",
+      "incident_type": "high_latency",
+      "affected_service": "order-service",
+      "severity": "MEDIUM",
+      "start_time": "2026-09-21T11:00:00Z",
+      "end_time": "2026-09-21T11:02:00Z"
+    }
+  },
+  {
+    "id": "INC-005",
+    "text": "Historical DevOps Incident\n\nIncident ID: INC-005\n\nIncident Type: memory_spike\n\nAffected Service: order-service\n\nSeverity: HIGH\n\nIncident Time:\n- Start: 2026-09-21T13:00:00Z\n- End: 2026-09-21T13:01:30Z\n\nRoot Cause:\nA bounded in-container process allocated and touched a large block of memory in order-service.\n\nSymptoms:\n- Container memory working set increases sharply.\n- Order-service remains available while operating with a substantially larger working set.\n- Request latency may increase under host memory pressure.\n\nExpected Evidence:\n- cAdvisor container_memory_working_set_bytes rises by approximately the configured allocation for order-service.\n- Prometheus retains the elevated working-set plateau throughout the incident.\n- Application request telemetry continues during the allocation.\n- Docker process inspection shows the temporary memory allocation process.\n\nResolution:\nTerminate the injected allocation process so memory is released; restart order-service only if it was OOM-killed, then verify memory and latency recover.\n\nTimeline:\n- baseline: Capture normal order-service memory usage and request latency.\n- failure_injection: Start the bounded memory allocation in order-service.\n- symptoms: Memory working set rises and request latency may increase or the container may be OOM-killed.\n- recovery: Release the allocation and confirm memory and service health recover.",
+    "metadata": {
+      "incident_id": "INC-005",
+      "incident_type": "memory_spike",
+      "affected_service": "order-service",
+      "severity": "HIGH",
+      "start_time": "2026-09-21T13:00:00Z",
+      "end_time": "2026-09-21T13:01:30Z"
+    }
+  },
+  {
+    "id": "INC-007",
+    "text": "Historical DevOps Incident\n\nIncident ID: INC-007\n\nIncident Type: network_failure\n\nAffected Service: order-service\n\nSeverity: HIGH\n\nIncident Time:\n- Start: 2026-09-21T15:00:00Z\n- End: 2026-09-21T15:01:30Z\n\nRoot Cause:\nPackets on the order-service to product-service network path were dropped while other paths remained healthy.\n\nSymptoms:\n- Calls from order-service to product-service time out.\n- Order creation returns HTTP 503 responses.\n- Direct product-service health and unrelated user-service communication remain successful.\n\nExpected Evidence:\n- order-service logs contain product-service timeout or connection failure messages.\n- Prometheus HTTP 5xx counters increase for order creation while product-service remains healthy.\n- Jaeger traces show successful user-service spans followed by a timed-out product-service client span.\n- Direct product-service requests remain successful throughout the incident.\n\nResolution:\nRestore transport on the affected dependency path, then verify dependency connectivity and error rates recover.\n\nTimeline:\n- baseline: Capture normal order-service dependency connectivity and error rate.\n- failure_injection: Drop packets only from order-service to product-service.\n- symptoms: Product dependency calls time out while unrelated network paths remain healthy.\n- recovery: Remove the network rules and confirm dependency calls and traces recover.",
+    "metadata": {
+      "incident_id": "INC-007",
+      "incident_type": "network_failure",
+      "affected_service": "order-service",
+      "severity": "HIGH",
+      "start_time": "2026-09-21T15:00:00Z",
+      "end_time": "2026-09-21T15:01:30Z"
+    }
+  },
+  {
+    "id": "INC-002",
+    "text": "Historical DevOps Incident\n\nIncident ID: INC-002\n\nIncident Type: service_failure\n\nAffected Service: product-service\n\nSeverity: HIGH\n\nIncident Time:\n- Start: 2026-09-21T10:00:00Z\n- End: 2026-09-21T10:01:30Z\n\nRoot Cause:\nThe product-service process was unresponsive because its container was paused.\n\nSymptoms:\n- order-service returns 503 responses for order creation requests.\n- Connection failures to product-service appear in order-service logs.\n- Dependency spans for product-service are absent or fail.\n\nExpected Evidence:\n- Docker events show product-service paused and later unpaused.\n- order-service logs contain product-service connection failures.\n- Prometheus HTTP 5xx counters increase for order creation requests.\n- Jaeger traces show failed or missing product-service dependency spans.\n\nResolution:\nSafely unpause the product-service container and verify its health endpoint, order-service dependency calls, and error rate recover.\n\nTimeline:\n- baseline: Capture healthy product-service calls and order creation metrics.\n- failure_injection: Pause the product-service container.\n- symptoms: order-service dependency calls fail and order creation returns 503 responses.\n- recovery: Unpause product-service and confirm successful dependency calls resume.",
+    "metadata": {
+      "incident_id": "INC-002",
+      "incident_type": "service_failure",
+      "affected_service": "product-service",
+      "severity": "HIGH",
+      "start_time": "2026-09-21T10:00:00Z",
+      "end_time": "2026-09-21T10:01:30Z"
+    }
+  }
+]

@@ -1,0 +1,19 @@
+{
+  "incident_id": "INC-001",
+  "type": "database_failure",
+  "affected_service": "postgres",
+  "start_time": "2026-09-21T09:00:00Z",
+  "end_time": "2026-09-21T09:02:00Z",
+  "expected_root_cause": "PostgreSQL became unavailable after its container was paused.",
+  "expected_symptoms": ["Dependent services return HTTP 500 or 503 responses.", "Database connection errors and OperationalError log messages increase.", "Request latency rises while clients wait for database connections."],
+  "expected_evidence": ["Docker events show the postgres container paused and later unpaused.", "Dependent-service logs contain database connection failures or OperationalError messages.", "Prometheus HTTP 5xx counters and request-duration metrics increase.", "Jaeger traces contain failed database spans."],
+  "expected_resolution": "Safely unpause the postgres container; do not delete or recreate its volume. Verify dependent-service health checks and error rates return to baseline.",
+  "timeline": [
+    {"phase": "baseline", "event": "Capture normal database connectivity, request latency, and error-rate metrics."},
+    {"phase": "failure_injection", "event": "Pause the postgres container."},
+    {"phase": "symptoms", "event": "Dependent requests begin failing or waiting for database connections."},
+    {"phase": "recovery", "event": "Unpause postgres and confirm application errors and latency recover."}
+  ],
+  "severity": "CRITICAL",
+  "simulator": "simulate.py"
+}

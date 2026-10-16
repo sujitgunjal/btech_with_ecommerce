@@ -1,0 +1,181 @@
+﻿{
+    "generated_at_utc":  "2026-08-23T07:17:30.7547967+00:00",
+    "project":  "AI-Powered-Incident-Investigation-System",
+    "overall_status":  "PASS",
+    "failed_tests":  [
+
+                     ],
+    "tests":  {
+                  "services":  {
+                                   "status":  "PASS",
+                                   "details":  {
+                                                   "expected":  [
+                                                                    "cadvisor",
+                                                                    "postgres",
+                                                                    "grafana",
+                                                                    "jaeger",
+                                                                    "loki",
+                                                                    "order-service",
+                                                                    "otel-collector",
+                                                                    "product-service",
+                                                                    "prometheus",
+                                                                    "user-service"
+                                                                ],
+                                                   "running":  [
+                                                                   "cadvisor",
+                                                                   "postgres",
+                                                                   "grafana",
+                                                                   "jaeger",
+                                                                   "loki",
+                                                                   "order-service",
+                                                                   "otel-collector",
+                                                                   "product-service",
+                                                                   "prometheus",
+                                                                   "user-service"
+                                                               ],
+                                                   "missing":  [
+
+                                                               ],
+                                                   "compose_parse_error":  null
+                                               }
+                               },
+                  "health":  {
+                                 "status":  "PASS",
+                                 "details":  {
+                                                 "user":  {
+                                                              "status_code":  200,
+                                                              "ok":  true,
+                                                              "body":  {
+                                                                           "service":  "user_service",
+                                                                           "status":  "healthy"
+                                                                       }
+                                                          },
+                                                 "product":  {
+                                                                 "status_code":  200,
+                                                                 "ok":  true,
+                                                                 "body":  {
+                                                                              "service":  "product-service",
+                                                                              "status":  "healthy"
+                                                                          }
+                                                             },
+                                                 "order":  {
+                                                               "status_code":  200,
+                                                               "ok":  true,
+                                                               "body":  {
+                                                                            "service":  "order-service",
+                                                                            "status":  "healthy"
+                                                                        }
+                                                           }
+                                             }
+                             },
+                  "order_creation":  {
+                                         "status":  "PASS",
+                                         "details":  {
+                                                         "request":  {
+                                                                         "user_id":  1,
+                                                                         "quantity":  1,
+                                                                         "product_id":  1
+                                                                     },
+                                                         "response":  {
+                                                                          "status_code":  201,
+                                                                          "ok":  true,
+                                                                          "body":  {
+                                                                                       "id":  16,
+                                                                                       "user_id":  1,
+                                                                                       "product_id":  1,
+                                                                                       "quantity":  1,
+                                                                                       "status":  "created",
+                                                                                       "created_at":  "2026-08-23T07:17:34.143294"
+                                                                                   }
+                                                                      }
+                                                     }
+                                     },
+                  "prometheus":  {
+                                     "status":  "PASS",
+                                     "details":  {
+                                                     "request_series":  10,
+                                                     "error_series":  2,
+                                                     "duration_series":  10,
+                                                     "request_query_ok":  true,
+                                                     "error_query_ok":  true,
+                                                     "duration_query_ok":  true
+                                                 }
+                                 },
+                  "loki":  {
+                               "status":  "PASS",
+                               "details":  {
+                                               "query":  "{service_name=\"order-service\"} |= \"Order created successfully\"",
+                                               "matching_entries":  1,
+                                               "entries":  [
+                                                               {
+                                                                   "timestamp":  "1787469423502285312",
+                                                                   "message":  "Order created successfully id=15"
+                                                               }
+                                                           ]
+                                           }
+                           },
+                  "jaeger":  {
+                                 "status":  "PASS",
+                                 "details":  {
+                                                 "services":  [
+                                                                  "order-service",
+                                                                  "jaeger-all-in-one",
+                                                                  "user-service",
+                                                                  "product-service"
+                                                              ],
+                                                 "trace_id":  "ab758501fe036a17e3854d8656a0113d",
+                                                 "span_count":  20,
+                                                 "trace_services":  [
+                                                                        "order-service",
+                                                                        "product-service",
+                                                                        "user-service"
+                                                                    ],
+                                                 "span_operations":  [
+                                                                         "connect",
+                                                                         "GET",
+                                                                         "GET /products/{product_id}",
+                                                                         "GET /products/{product_id} http send",
+                                                                         "GET /users/{user_id}",
+                                                                         "GET /users/{user_id} http send",
+                                                                         "INSERT devops_db",
+                                                                         "POST /orders",
+                                                                         "POST /orders http receive",
+                                                                         "POST /orders http send",
+                                                                         "SELECT devops_db"
+                                                                     ]
+                                             }
+                             },
+                  "grafana":  {
+                                  "status":  "PASS",
+                                  "details":  {
+                                                  "health":  {
+                                                                 "database":  "ok",
+                                                                 "version":  "12.0.2",
+                                                                 "commit":  "5bda17e7c1cb313eb96266f2fdda73a6b35c3977"
+                                                             },
+                                                  "dashboard":  {
+                                                                    "id":  2,
+                                                                    "uid":  "ai-incident-observability",
+                                                                    "orgId":  1,
+                                                                    "title":  "AI Incident Investigation - Observability",
+                                                                    "uri":  "db/ai-incident-investigation-observability",
+                                                                    "url":  "/d/ai-incident-observability/ai-incident-investigation-observability",
+                                                                    "slug":  "",
+                                                                    "type":  "dash-db",
+                                                                    "tags":  [
+                                                                                 "devops",
+                                                                                 "incident-investigation",
+                                                                                 "observability"
+                                                                             ],
+                                                                    "isStarred":  false,
+                                                                    "folderId":  1,
+                                                                    "folderUid":  "efw0tssb682dcb",
+                                                                    "folderTitle":  "Incident Investigation",
+                                                                    "folderUrl":  "/dashboards/f/efw0tssb682dcb/incident-investigation",
+                                                                    "sortMeta":  0,
+                                                                    "isDeleted":  false
+                                                                }
+                                              }
+                              }
+              }
+}
