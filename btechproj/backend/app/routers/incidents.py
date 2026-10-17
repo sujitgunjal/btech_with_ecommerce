@@ -15,7 +15,7 @@ from ..schemas.incident import (
     IncidentResponse,
     IncidentUpdate,
 )
-from ..schemas.investigation import InvestigationResponse
+from ..schemas.investigation import IncidentAnswer, IncidentQuestion, InvestigationResponse
 from ..services.evidence_service import EvidenceService
 from ..services.incident_service import IncidentService, find_incident_scenario
 from ..services.investigation_service import InvestigationService
@@ -145,6 +145,116 @@ async def investigate_incident(
         confidence=investigation.confidence,
         created_at=investigation.created_at,
         evidence_count=evidence_count,
+    )
+
+
+@router.post("/{incident_id}/ask", response_model=IncidentAnswer)
+async def ask_about_incident(
+    incident_id: int,
+    body: IncidentQuestion,
+    db: Session = Depends(get_db),
+):
+    """Answer a question from the incident's existing RCA and telemetry."""
+    from ..incident_chat import (
+        build_chat_messages,
+        evidence_brief,
+        fallback_answer,
+        grounded_answer,
+        parse_model_answer,
+        rows_from_stored,
+    )
+    from ..investigation.llm import LLMClient
+    from ..models.investigation import Investigation
+    from ..services.evidence_service import EvidenceService
+
+    incident = IncidentService(db).get(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    investigation = (
+        db.query(Investigation)
+        .filter(Investigation.incident_id == incident.id)
+        .order_by(Investigation.id.desc())
+        .first()
+    )
+    report = _parse_report(investigation.report) if investigation and investigation.report else None
+    stored = rows_from_stored(
+        [
+            {
+                "source": row.source,
+                "service": row.service,
+                "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+                "event_type": row.event_type,
+                "severity": row.severity,
+                "content": row.content,
+                "metadata": row.metadata_ or {},
+            }
+            for row in IncidentService(db).get_evidence(incident.id)
+        ]
+    )
+    if any(stored[name] for name in ("logs", "metrics", "traces")):
+        evidence_lists = stored
+    else:
+        evidence = await EvidenceService().get_incident_evidence(
+            incident_id=incident.external_id or str(incident.id),
+            service=incident.service,
+            start_time=incident.start_time,
+            end_time=incident.end_time,
+        )
+        evidence_lists = {
+            "logs": evidence.get("logs") or [],
+            "metrics": evidence.get("metrics") or [],
+            "traces": evidence.get("traces") or [],
+            "correlations": evidence.get("correlations") or [],
+        }
+    evidence_text = evidence_brief(evidence_lists)
+    incident_view = {
+        "service": incident.service,
+        "severity": incident.severity,
+        "title": incident.title,
+        "description": incident.description,
+        "start_time": incident.start_time,
+        "end_time": incident.end_time,
+    }
+    grounded = grounded_answer(body.question, incident_view, report, evidence_lists)
+    if grounded is not None:
+        return IncidentAnswer(**grounded)
+    if not report and not evidence_text.strip():
+        result = fallback_answer(body.question, None, "")
+        return IncidentAnswer(**result)
+
+    messages = build_chat_messages(
+        question=body.question,
+        history=[turn.model_dump() for turn in body.history],
+        incident=incident_view,
+        report=report,
+        evidence_text=evidence_text,
+        historical_note=_historical_note(incident, body.question),
+    )
+    try:
+        raw = await LLMClient().complete(messages)
+        result = parse_model_answer(raw, evidence_lists)
+    except Exception as exc:
+        logger.warning("Incident question fell back without the model: %s", exc)
+        result = fallback_answer(body.question, report, evidence_text)
+    return IncidentAnswer(**result)
+
+
+def _historical_note(incident, question: str) -> str:
+    """Reuse the existing RAG retriever. Matches are context, not proof."""
+    try:
+        from ..rag.retriever import IncidentRetriever
+
+        matches = IncidentRetriever().retrieve(
+            f"{incident.service} {incident.title or ''} {question}",
+            top_k=3,
+        )
+    except Exception as exc:
+        logger.warning("Historical retrieval skipped for incident question: %s", exc)
+        return ""
+    return "; ".join(
+        f"{item.get('incident_id')} similarity={item.get('similarity_score')} context only"
+        for item in matches
     )
 
 

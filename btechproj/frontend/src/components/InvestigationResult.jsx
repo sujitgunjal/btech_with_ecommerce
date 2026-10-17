@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CheckCircle2,
   Brain,
@@ -89,8 +89,28 @@ const InvestigationResult = ({
   telemetry = null,
   telemetryLoading = false,
   telemetryError = null,
+  focusRequest = null,
 }) => {
   const [tab, setTab] = useState('logs');
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    const nextTab = focusRequest.source === 'metrics'
+      ? 'metrics'
+      : focusRequest.source === 'traces'
+      ? 'traces'
+      : 'logs';
+    if (focusRequest.source === 'correlations') {
+      document.getElementById('telemetry-evidence')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return undefined;
+    }
+    setTab(nextTab);
+    const frame = requestAnimationFrame(() => {
+      document.getElementById('telemetry-evidence')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById(`evidence-${nextTab}-${focusRequest.index}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusRequest, telemetry]);
 
   if (!investigation && !telemetry && !telemetryLoading && !telemetryError) {
     return null;
@@ -274,7 +294,7 @@ const InvestigationResult = ({
         </div>
       )}
 
-      <div className="space-y-4 pt-2 border-t border-slate-100">
+      <div id="telemetry-evidence" className="space-y-4 pt-2 border-t border-slate-100">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <h4 className="text-xs font-semibold text-slate-800 uppercase tracking-wider flex items-center gap-2">
             <FileSearch className="h-4 w-4 text-[#384959]" />
@@ -303,6 +323,32 @@ const InvestigationResult = ({
 
         {!telemetryLoading && !telemetryError && telemetry && (
           <>
+            {telemetry.correlations?.length > 0 && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
+                <span className="text-slate-800 font-semibold text-xs">Correlations</span>
+                <p className="text-[11px] text-slate-500">
+                  Links between logs, metrics, traces, and deployment or fault records.
+                  A shared trace, endpoint, service, or nearby timestamp is not proof of causation.
+                </p>
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {telemetry.correlations.slice(0, 12).map((item, idx) => (
+                    <div key={`${item.relation}-${idx}`} className="text-xs bg-white border border-slate-200 rounded-lg p-3 space-y-1">
+                      <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
+                        <span className="font-semibold text-slate-700">{item.matching_method || item.relation}</span>
+                        {item.services?.length > 0 && <span>{item.services.join(', ')}</span>}
+                        {item.time_difference_seconds !== null && item.time_difference_seconds !== undefined && (
+                          <span>{item.time_difference_seconds}s apart</span>
+                        )}
+                      </div>
+                      <p className="text-slate-700 leading-relaxed">{item.content}</p>
+                      {item.evidence_refs?.length > 0 && (
+                        <p className="font-mono text-[10px] text-slate-400">{item.evidence_refs.join(' · ')}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               {TABS.map((item) => (
                 <button
@@ -325,7 +371,7 @@ const InvestigationResult = ({
                 rows={logs}
                 emptyLabel="No logs were returned for this incident window."
                 renderRow={(log, idx) => (
-                  <div key={idx} className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1">
+                  <div id={`evidence-logs-${idx}`} key={`log-${idx}`} className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1">
                     <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
                       <span className="font-mono">{formatTimestamp(log.timestamp)}</span>
                       <span className="font-semibold text-slate-700">{log.level || '—'}</span>
@@ -343,7 +389,7 @@ const InvestigationResult = ({
                 rows={metrics}
                 emptyLabel="No metrics were returned for this incident window."
                 renderRow={(metric, idx) => (
-                  <div key={idx} className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div id={`evidence-metrics-${idx}`} key={idx} className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div>
                       <div className="font-semibold text-slate-800">{metric.metric_name || '—'}</div>
                       <div className="text-[11px] text-slate-500 mt-0.5">
@@ -361,7 +407,7 @@ const InvestigationResult = ({
                 rows={traces}
                 emptyLabel="No traces were returned for this incident window."
                 renderRow={(trace, idx) => (
-                  <div key={idx} className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1">
+                  <div id={`evidence-traces-${idx}`} key={`trace-${idx}`} className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold text-slate-800">{trace.operation || '—'}</span>
                       <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${

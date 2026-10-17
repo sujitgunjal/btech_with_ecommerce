@@ -144,9 +144,13 @@ class EvidenceService:
         metrics.sort(key=lambda x: (x.get("timestamp", ""), x.get("metric_name", "")))
         traces.sort(key=lambda x: (x.get("timestamp", ""), x.get("trace_id", ""), x.get("span_id", "")))
 
+        from ..config import get_settings
         from .correlation import correlation_notes
 
-        correlations = correlation_notes([*logs, *metrics, *traces])
+        correlations = correlation_notes(
+            [*logs, *metrics, *traces],
+            tolerance_seconds=get_settings().CORRELATION_TOLERANCE_SECONDS,
+        )
 
         logger.info(
             "Unified evidence collected incident_id=%s counts: logs=%d metrics=%d traces=%d",
@@ -172,12 +176,24 @@ class EvidenceService:
     async def _fetch_logs(
         self, service: str, start_dt: datetime, end_dt: datetime
     ) -> list[dict[str, Any]]:
-        """Fetch logs from Loki with graceful error handling."""
-        try:
-            return await self.loki.get_logs(service, start_dt, end_dt)
-        except Exception as exc:
-            logger.warning("Loki collection failed gracefully for %s: %s", service, exc)
-            return []
+        """Fetch this service's logs and logs from the service that calls it."""
+        names = [service, *JaegerCollector.DEPENDENCY_MAP.get(service, [])]
+        rows: list[dict[str, Any]] = []
+        seen: set[tuple] = set()
+        for name in names:
+            try:
+                batch = await self.loki.get_logs(name, start_dt, end_dt)
+            except Exception as exc:
+                logger.warning("Loki collection failed gracefully for %s: %s", name, exc)
+                continue
+            for row in batch:
+                key = (row.get("timestamp"), row.get("service"), row.get("message"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(row)
+        rows.sort(key=lambda row: row.get("timestamp") or "")
+        return rows
 
     async def _fetch_metrics(
         self, service: str, start_dt: datetime, end_dt: datetime

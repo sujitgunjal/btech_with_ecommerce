@@ -231,6 +231,16 @@ export const investigateIncident = async (id) => {
   return { data: response.data, isMock: false };
 };
 
+export const askAboutIncident = async (id, question, history) => {
+  const numericId = await resolveLiveDbId(id);
+  const response = await api.post(
+    `/incidents/${numericId}/ask`,
+    { question, history },
+    { timeout: INVESTIGATE_TIMEOUT_MS }
+  );
+  return response.data;
+};
+
 /**
  * Alias for investigateIncident to match pipeline triggering conventions
  */

@@ -23,6 +23,7 @@ from ..rag.retriever import IncidentRetriever
 from .context import InvestigationContext, build_investigation_context
 from .llm import LLMClient
 from .prompt import build_system_prompt, build_user_prompt
+from .diagnosis import refine_rca
 
 logger = logging.getLogger("incident-backend")
 
@@ -122,6 +123,10 @@ class InvestigationEngine:
 
         try:
             rca = await self._llm.generate_rca(system_prompt, user_prompt)
+            rca = refine_rca(
+                rca,
+                context.evidence_formatted.get("evidence_text", ""),
+            )
 
             if context.historical_incidents and not rca.get(
                 "relevant_historical_incidents"
@@ -192,4 +197,7 @@ class InvestigationEngine:
         if error:
             fallback["analysis_error"] = error
 
-        return fallback
+        return refine_rca(
+            fallback,
+            context.evidence_formatted.get("evidence_text", ""),
+        )

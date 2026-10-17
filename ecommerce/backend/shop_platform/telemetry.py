@@ -115,7 +115,7 @@ class RequestMetricsMiddleware:
             await self.app(scope, receive, send)
             return
         path = scope.get("path", "")
-        if path.startswith(("/health", "/ops", "/internal", "/docs", "/redoc", "/openapi.json")):
+        if path.startswith(("/health", "/ops", "/docs", "/redoc", "/openapi.json")):
             await self.app(scope, receive, send)
             return
 
@@ -128,13 +128,18 @@ class RequestMetricsMiddleware:
                 status_code = message.get("status", 500)
             await send(message)
 
+        internal = path.startswith("/internal")
         try:
             await self.app(scope, receive, send_with_status)
         except Exception:
-            self._record(scope, status_code, time.perf_counter() - start)
+            if not internal:
+                self._record(scope, status_code, time.perf_counter() - start)
+            self._log_request(scope, status_code, time.perf_counter() - start)
             raise
         else:
-            self._record(scope, status_code, time.perf_counter() - start)
+            if not internal:
+                self._record(scope, status_code, time.perf_counter() - start)
+            self._log_request(scope, status_code, time.perf_counter() - start)
 
     def _record(self, scope, status_code, duration):
         status = str(status_code)
@@ -147,14 +152,16 @@ class RequestMetricsMiddleware:
         if status_code >= 500:
             self.error_count.add(1, attributes)
         self.request_duration.record(duration, attributes)
-        if status_code >= 500:
-            logging.getLogger("ecommerce.http").error(
-                "http request failed method=%s path=%s status=%s duration_ms=%.1f",
-                scope.get("method", "UNKNOWN"),
-                scope.get("path", ""),
-                status_code,
-                duration * 1000,
-            )
+
+    def _log_request(self, scope, status_code, duration):
+        logging.getLogger("ecommerce.http").log(
+            logging.ERROR if status_code >= 500 else logging.INFO,
+            "http request method=%s path=%s status=%s duration_ms=%.1f",
+            scope.get("method", "UNKNOWN"),
+            scope.get("path", ""),
+            status_code,
+            duration * 1000,
+        )
 
 
 def init_telemetry(app, engine, service_name: str, endpoint: str, environment: str):

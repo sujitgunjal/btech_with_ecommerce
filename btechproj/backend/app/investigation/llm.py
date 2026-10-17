@@ -94,6 +94,20 @@ class LLMClient:
 
         return self._parse_response(raw_content)
 
+    async def complete(self, messages: list[dict[str, str]]) -> str:
+        """Send a chat completion and return the assistant text."""
+        if not self.is_configured:
+            raise RuntimeError("LLM_API_KEY is not configured.")
+        client = self._get_client()
+        response = client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=min(self.temperature, 0.2),
+            max_tokens=min(self.max_tokens, 1200),
+            response_format={"type": "json_object"},
+        )
+        return response.choices[0].message.content or ""
+
     @staticmethod
     def _parse_response(raw: str | None) -> dict[str, Any]:
         """Parse and validate the LLM JSON response into an RCA dict.

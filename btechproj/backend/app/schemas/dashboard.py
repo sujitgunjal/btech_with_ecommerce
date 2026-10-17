@@ -11,20 +11,17 @@ class ServiceHealthItem(BaseModel):
         ...,
         description="Operational status: healthy, degraded, or critical",
     )
-    requests_per_minute: float = Field(
-        ...,
-        ge=0.0,
-        description="Request throughput per minute for this service",
+    requests_per_minute: float | None = Field(
+        default=None,
+        description="Request throughput per minute. Null when the request counter is absent.",
     )
-    average_latency_ms: float = Field(
-        ...,
-        ge=0.0,
-        description="Average request latency in milliseconds for this service",
+    average_latency_ms: float | None = Field(
+        default=None,
+        description="Average request latency in milliseconds. Null when no requests were counted.",
     )
-    error_rate: float = Field(
-        0.0,
-        ge=0.0,
-        description="HTTP 5xx error percentage over the recent window",
+    error_rate: float | None = Field(
+        default=None,
+        description="HTTP 5xx percentage. Null when no requests were counted.",
     )
 
 

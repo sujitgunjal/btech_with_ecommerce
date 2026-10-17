@@ -114,6 +114,14 @@ export default function Ops() {
         <>
           <div className="notice">
             Fault active: {String(status?.fault?.active)} · Load active: {String(status?.load?.active)} · Load requests: {status?.load?.stats?.requests ?? 0}
+            {status?.experiment ? (
+              <>
+                {' '}· Experiment {status.experiment.id} is {status.experiment.outcome}
+                {status.experiment.investigation_incident_id
+                  ? ` · listed as incident ${status.experiment.investigation_incident_id}`
+                  : ' · not listed on the investigation dashboard yet'}
+              </>
+            ) : ' · No experiment is running'}
           </div>
           <div className="ops-grid">
             <section className="card pad">
@@ -146,7 +154,7 @@ export default function Ops() {
           </div>
           <h2>Experiments</h2>
           <table>
-            <thead><tr><th>ID</th><th>Kind</th><th>Scenario</th><th>Service</th><th>Outcome</th><th>Expected root cause</th></tr></thead>
+            <thead><tr><th>ID</th><th>Kind</th><th>Scenario</th><th>Service</th><th>Outcome</th><th>Incident</th></tr></thead>
             <tbody>
               {experiments.map((item) => (
                 <tr key={item.id}>
@@ -155,7 +163,7 @@ export default function Ops() {
                   <td>{item.scenario_id}</td>
                   <td>{item.target_service}</td>
                   <td>{item.outcome}</td>
-                  <td>{item.expected_root_cause}</td>
+                  <td>{item.investigation_incident_id ?? '—'}</td>
                 </tr>
               ))}
             </tbody>

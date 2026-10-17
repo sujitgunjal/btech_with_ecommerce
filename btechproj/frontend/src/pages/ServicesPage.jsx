@@ -101,13 +101,17 @@ const ServicesPage = () => {
                 <div>
                   <span className="text-[10px] text-slate-500 block font-sans">Avg Latency</span>
                   <span className={`font-semibold ${srv.status?.toUpperCase() === 'DEGRADED' || srv.status?.toUpperCase() === 'CRITICAL' ? 'text-red-700' : 'text-slate-800'}`}>
-                    {typeof srv.average_latency_ms === 'number' ? `${srv.average_latency_ms} ms` : (srv.p99 || srv.avgLatency || '—')}
+                    {srv.average_latency_ms == null || srv.average_latency_ms === undefined
+                      ? 'N/A'
+                      : `${srv.average_latency_ms} ms`}
                   </span>
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-500 block font-sans">Error Rate</span>
                   <span className={`font-semibold ${srv.status?.toUpperCase() === 'DEGRADED' || srv.status?.toUpperCase() === 'CRITICAL' ? 'text-red-700' : 'text-slate-800'}`}>
-                    {typeof srv.error_rate === 'number' ? `${srv.error_rate}%` : (srv.errors || '—')}
+                    {srv.error_rate == null || srv.error_rate === undefined
+                      ? 'N/A'
+                      : `${srv.error_rate}%`}
                   </span>
                 </div>
                 <div>

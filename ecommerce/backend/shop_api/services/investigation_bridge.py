@@ -18,8 +18,11 @@ logger = logging.getLogger("ecommerce.incidents")
 def publish_incident(experiment) -> int | None:
     settings = get_settings()
     base = settings.investigation_api_url.rstrip("/")
-    if not base or experiment.investigation_incident_id:
+    if not base:
         return experiment.investigation_incident_id
+    if experiment.investigation_incident_id and _incident_exists(base, experiment.investigation_incident_id):
+        return experiment.investigation_incident_id
+    experiment.investigation_incident_id = None
     duration = 90
     try:
         import json
@@ -27,7 +30,7 @@ def publish_incident(experiment) -> int | None:
         duration = int(json.loads(experiment.parameters_json).get("duration_seconds", 90))
     except (TypeError, ValueError):
         duration = 90
-    end = experiment.started_at + timedelta(seconds=duration)
+    end = experiment.ended_at or (experiment.started_at + timedelta(seconds=duration))
     payload = {
         "title": f"{experiment.scenario_id.replace('_', ' ')} on {experiment.target_service}",
         "description": (
@@ -57,13 +60,22 @@ def publish_incident(experiment) -> int | None:
     return None
 
 
+def _incident_exists(base: str, incident_id: int) -> bool:
+    try:
+        response = httpx.get(f"{base}/incidents/{incident_id}", timeout=5)
+    except httpx.HTTPError as exc:
+        logger.warning("Could not check investigation incident %s: %s", incident_id, exc)
+        return True
+    return response.status_code != 404
+
+
 def publish_missing_incidents() -> None:
     from shop_api.database import SessionLocal
     from shop_api.models import Experiment
 
     db = SessionLocal()
     try:
-        rows = db.query(Experiment).filter(Experiment.investigation_incident_id.is_(None)).all()
+        rows = db.query(Experiment).order_by(Experiment.id.desc()).limit(15).all()
         for row in rows:
             publish_incident(row)
         db.commit()

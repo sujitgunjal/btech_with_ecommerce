@@ -10,6 +10,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import InvestigationResult from '../components/InvestigationResult';
+import IncidentChat from '../components/IncidentChat';
 import SeverityBadge from '../components/SeverityBadge';
 import DemoDataBadge from '../components/DemoDataBadge';
 import {
@@ -77,6 +78,7 @@ const InvestigationPage = () => {
   const [telemetryLoading, setTelemetryLoading] = useState(false);
   const [telemetryError, setTelemetryError] = useState(null);
   const [hasStarted, setHasStarted] = useState(false);
+  const [focusRequest, setFocusRequest] = useState(null);
 
   const fetchIncidentDetails = useCallback(async () => {
     setLoading(true);
@@ -280,6 +282,27 @@ const InvestigationPage = () => {
           telemetry={telemetry}
           telemetryLoading={telemetryLoading}
           telemetryError={telemetryError}
+          focusRequest={focusRequest}
+        />
+      )}
+      {incident && (
+        <IncidentChat
+          incidentId={incident.db_id ?? incidentId}
+          onFocusEvidence={(ref) => {
+            setHasStarted(true);
+            setFocusRequest({ ...ref, nonce: Date.now() });
+            const targetId = incident.db_id ?? incidentId;
+            if (!telemetry && !telemetryLoading) {
+              setTelemetryLoading(true);
+              getIncidentEvidence(targetId)
+                .then((res) => setTelemetry(res.data))
+                .catch((err) => {
+                  setTelemetry(null);
+                  setTelemetryError(requestErrorMessage(err, 'Failed to load incident evidence.'));
+                })
+                .finally(() => setTelemetryLoading(false));
+            }
+          }}
         />
       )}
     </div>

@@ -173,6 +173,7 @@ class ExperimentOut(BaseModel):
     detail: str
     started_at: datetime
     ended_at: datetime | None
+    investigation_incident_id: int | None = None
 
 
 class OpsLoginIn(BaseModel):

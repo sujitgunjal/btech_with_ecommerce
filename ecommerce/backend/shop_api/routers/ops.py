@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import hmac
 import json
-from datetime import datetime, timezone
+import threading
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -48,6 +49,77 @@ def require_enabled() -> None:
         raise HTTPException(status_code=404, detail="Not found")
 
 
+def _deadline(row: Experiment) -> datetime:
+    try:
+        seconds = int(json.loads(row.parameters_json).get("duration_seconds", 90))
+    except (TypeError, ValueError):
+        seconds = 90
+    started = row.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return started + timedelta(seconds=max(seconds, 1))
+
+
+def _fault_still_active() -> bool:
+    if controller.snapshot().get("active"):
+        return True
+    return bool(_payment_fault_snapshot().get("active"))
+
+
+def reconcile_stale_experiments() -> None:
+    """Close a database row whose timer has elapsed and whose fault is idle.
+
+    Payment-gateway faults run in the other process, so this process does not
+    hear their expiry callback. A restarted process also loses its in-memory timer.
+    """
+    db = SessionLocal()
+    try:
+        rows = db.query(Experiment).filter(Experiment.outcome == "running").all()
+        now = datetime.now(timezone.utc)
+        changed = False
+        for row in rows:
+            if _deadline(row) > now:
+                continue
+            if row.kind == "load" and runner.running():
+                continue
+            if row.kind == "fault" and _fault_still_active():
+                continue
+            row.outcome = "expired"
+            row.ended_at = now
+            row.detail = "The duration elapsed"
+            from shop_api.services.investigation_bridge import close_incident
+
+            close_incident(row)
+            changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+
+def _expire_if_still_running(experiment_id: int) -> None:
+    db = SessionLocal()
+    try:
+        row = db.get(Experiment, experiment_id)
+        if row is None or row.outcome != "running":
+            return
+        if _deadline(row) > datetime.now(timezone.utc):
+            return
+        if row.kind == "load" and runner.running():
+            return
+        if row.kind == "fault" and _fault_still_active():
+            return
+    finally:
+        db.close()
+    _finish_running("expired", "The duration elapsed")
+
+
+def _arm_deadline(experiment_id: int, seconds: int) -> None:
+    timer = threading.Timer(max(int(seconds), 1), _expire_if_still_running, args=(experiment_id,))
+    timer.daemon = True
+    timer.start()
+
+
 def _finish_running(outcome: str, detail: str = "") -> None:
     db = SessionLocal()
     try:
@@ -73,10 +145,20 @@ def recover_orphan_experiments() -> None:
     db = SessionLocal()
     try:
         rows = db.query(Experiment).filter(Experiment.outcome == "running").all()
+        from shop_api.services.investigation_bridge import close_incident
+
+        now = utcnow()
         for row in rows:
+            deadline = _deadline(row)
+            elapsed = deadline <= now
             row.outcome = "expired"
-            row.ended_at = utcnow()
-            row.detail = "The process restarted before the experiment finished"
+            row.ended_at = deadline if elapsed else now
+            row.detail = (
+                "The duration elapsed"
+                if elapsed
+                else "The process restarted before the experiment finished"
+            )
+            close_incident(row)
         if rows:
             db.commit()
     finally:
@@ -95,6 +177,7 @@ def _experiment_out(row: Experiment) -> ExperimentOut:
         detail=row.detail,
         started_at=row.started_at,
         ended_at=row.ended_at,
+        investigation_incident_id=row.investigation_incident_id,
     )
 
 
@@ -176,6 +259,7 @@ def _payment_fault_snapshot() -> dict:
 
 
 def _status_payload() -> dict:
+    reconcile_stale_experiments()
     db = SessionLocal()
     try:
         current = _running(db)
@@ -195,6 +279,7 @@ def _status_payload() -> dict:
 @router.get("/experiments", response_model=list[ExperimentOut])
 def experiments(_: str = Depends(require_ops)):
     require_enabled()
+    reconcile_stale_experiments()
     db = SessionLocal()
     try:
         rows = db.query(Experiment).order_by(Experiment.id.desc()).limit(50).all()
@@ -264,6 +349,7 @@ def _start(kind: str, body: ExperimentStartIn) -> ExperimentOut:
     except StopIteration as exc:
         raise HTTPException(status_code=422, detail="Unknown scenario") from exc
 
+    reconcile_stale_experiments()
     db = SessionLocal()
     try:
         if _running(db) is not None or controller.snapshot()["active"] or runner.running():
@@ -300,6 +386,7 @@ def _start(kind: str, body: ExperimentStartIn) -> ExperimentOut:
         _clear_payment()
         raise HTTPException(status_code=503, detail="The experiment could not be applied") from exc
     _remember_incident(payload.id)
+    _arm_deadline(payload.id, int(params.get("duration_seconds", 90)))
     return payload
 
 

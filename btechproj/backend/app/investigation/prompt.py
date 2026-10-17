@@ -3,6 +3,8 @@
 import json
 from typing import Any
 
+from .diagnosis import sanitize_operator_text
+
 SYSTEM_PROMPT = """\
 You are a senior DevOps incident investigator performing root cause analysis.
 
@@ -16,6 +18,15 @@ a LOW confidence score (below 0.5).
 5. Do NOT recommend autonomous remediation. Only recommend manual actions.
 6. Correlation notes only mean the signals occurred together or on one trace. \
 They are not proof of causation.
+7. Describe the technical condition and its measured impact. Separate sentences \
+that the evidence confirms from sentences that are only a hypothesis.
+8. Do not mention experiment names, scenario identifiers, fault injection, or \
+words such as "intentional" or "injected". Historical incident types are context, \
+not labels for this diagnosis.
+9. Recommended actions must be checks an operator can perform on the live \
+signals: resource trends, limits, endpoint latency, dependency latency, and \
+error rates. Recommend a restart or rollback only when the evidence shows the \
+service is still down or not recovering.
 
 Respond with a single JSON object matching this exact schema:
 {schema}
@@ -25,9 +36,9 @@ confidence must be between 0.0 and 1.0.\
 """
 
 RCA_SCHEMA = {
-    "root_cause": "string — most probable root cause based on current evidence",
+    "root_cause": "string — technical condition and measured impact. Mark what is confirmed and what is not established. Do not name an experiment.",
     "supporting_evidence": [
-        "string — specific pieces of current evidence that support this conclusion"
+        "string — a log line, metric, or trace that was actually provided"
     ],
     "affected_services": [
         "string — services affected by this incident"
@@ -43,7 +54,7 @@ RCA_SCHEMA = {
         "string — other plausible explanations if confidence is not high"
     ],
     "recommended_actions": [
-        "string — concrete steps the team should take"
+        "string — a diagnostic or remediation step justified by the evidence. Do not say to remove an injected fault."
     ],
     "relevant_historical_incidents": [
         {
@@ -93,10 +104,12 @@ def build_user_prompt(
     historical_incidents: list[dict[str, Any]],
 ) -> str:
     """Build the user prompt from incident details, evidence, and history."""
-    title = getattr(incident, "title", "Unknown")
+    title = sanitize_operator_text(getattr(incident, "title", "Unknown"))
     service = getattr(incident, "service", "Unknown")
     severity = getattr(incident, "severity", "Unknown")
-    description = getattr(incident, "description", "") or "No description provided."
+    description = sanitize_operator_text(
+        getattr(incident, "description", "") or "No description provided."
+    )
     start_time = str(getattr(incident, "start_time", "N/A"))
     end_time = str(getattr(incident, "end_time", "N/A"))
 
@@ -128,7 +141,7 @@ def _format_historical_context(incidents: list[dict[str, Any]]) -> str:
         section = (
             f"**{i}. {inc.get('incident_id', 'Unknown')}** "
             f"(similarity: {similarity:.2f})\n"
-            f"  Type: {meta.get('incident_type', 'unknown')}\n"
+            f"  Type: {sanitize_operator_text(str(meta.get('incident_type', 'unknown')))}\n"
             f"  Service: {meta.get('affected_service', 'unknown')}\n"
             f"  Severity: {meta.get('severity', 'unknown')}\n"
         )

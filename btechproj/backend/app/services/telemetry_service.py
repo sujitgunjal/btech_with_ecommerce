@@ -75,7 +75,12 @@ class TelemetryService:
             all_events.extend(events)
             all_errors.extend(errors)
 
-        all_events.extend(correlation_events(all_events))
+        all_events.extend(
+            correlation_events(
+                all_events,
+                tolerance_seconds=get_settings().CORRELATION_TOLERANCE_SECONDS,
+            )
+        )
         return all_events, all_errors
 
     def collector_count(self, service: str) -> int:

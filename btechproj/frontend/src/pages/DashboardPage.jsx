@@ -385,12 +385,12 @@ const DashboardPage = () => {
                         <td className="py-3.5 px-4 text-slate-600 font-mono">
                           {typeof srv.requests_per_minute === 'number'
                             ? `${srv.requests_per_minute.toLocaleString()} req/min`
-                            : srv.requestCount}
+                            : 'N/A'}
                         </td>
                         <td className="py-3.5 px-4 text-slate-600 font-mono">
-                          {typeof srv.average_latency_ms === 'number'
-                            ? `${srv.average_latency_ms} ms`
-                            : srv.avgLatency}
+                          {srv.average_latency_ms == null || srv.average_latency_ms === undefined
+                            ? 'N/A'
+                            : `${srv.average_latency_ms} ms`}
                         </td>
                         <td className="py-3.5 px-4 text-right">
                           <Sparkline

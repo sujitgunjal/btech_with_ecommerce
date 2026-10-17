@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     # Collector settings
     COLLECTOR_TIMEOUT: float = 2.0
+    CORRELATION_TOLERANCE_SECONDS: float = 30.0
 
     # LLM settings (Ollama with Gemma 4)
     LLM_MODEL: str = "gemma4:31b-cloud"

@@ -49,3 +49,25 @@ class InvestigationResponse(BaseModel):
     confidence: Optional[float] = None
     created_at: datetime
     evidence_count: int = 0
+
+
+class ChatTurn(BaseModel):
+    role: str
+    content: str = Field(max_length=4000)
+
+
+class IncidentQuestion(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+    history: list[ChatTurn] = Field(default_factory=list, max_length=12)
+
+
+class EvidenceCitation(BaseModel):
+    source: str
+    index: int
+    label: str
+
+
+class IncidentAnswer(BaseModel):
+    answer: str
+    certainty: str
+    evidence_refs: list[EvidenceCitation] = Field(default_factory=list)

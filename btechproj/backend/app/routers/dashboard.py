@@ -21,6 +21,7 @@ from ..schemas.dashboard import (
     ServiceHealthItem,
     ServicesListResponse,
 )
+from ..service_metrics import WINDOW_MINUTES, summarize_service_traffic
 
 logger = logging.getLogger("incident-backend")
 
@@ -53,14 +54,26 @@ HOST_HEALTH_URLS = {
 
 
 async def is_service_reachable(service_name: str) -> bool:
-    """Check whether a microservice endpoint is reachable and responding."""
-    urls = [f"http://{service_name}:8000/health"]
+    """Check health directly, then fall back to a live Prometheus series.
+
+    The shop services run on another Compose network, so their container DNS
+    names do not resolve here. A missing name is not the same as a stopped
+    process when Prometheus is still receiving that service's metrics.
+    """
+    if await _probe_health(service_name):
+        return True
+    return await _prometheus_has_service(service_name)
+
+
+async def _probe_health(service_name: str) -> bool:
+    urls = []
     host_url = HOST_HEALTH_URLS.get(service_name)
     if host_url:
         urls.append(host_url)
+    urls.append(f"http://{service_name}:8000/health")
 
     try:
-        async with httpx.AsyncClient(timeout=1.5) as client:
+        async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
             for url in urls:
                 try:
                     res = await client.get(url)
@@ -81,20 +94,37 @@ async def is_service_reachable(service_name: str) -> bool:
     return False
 
 
+async def _prometheus_has_service(service_name: str) -> bool:
+    settings = get_settings()
+    collector = PrometheusCollector(settings.PROMETHEUS_URL, settings.COLLECTOR_TIMEOUT)
+    for metric in (
+        "http_server_duration_milliseconds_count",
+        "app_http_request_count_total",
+    ):
+        count = await collector.query_scalar(
+            f'count({metric}{{service_name="{service_name}"}})'
+        )
+        if count is not None and count > 0:
+            return True
+    return False
+
+
 def determine_service_status(
-    error_rate: float, latency_ms: float, is_up: bool = True
+    error_rate: float | None, latency_ms: float | None, is_up: bool = True
 ) -> str:
     """Determine service status based on reachability and performance thresholds."""
     if not is_up:
         return "down"
+    observed_error = error_rate if error_rate is not None else 0.0
+    observed_latency = latency_ms if latency_ms is not None else 0.0
     if (
-        error_rate >= HEALTH_THRESHOLDS["error_rate_critical"]
-        or latency_ms >= HEALTH_THRESHOLDS["latency_critical_ms"]
+        observed_error >= HEALTH_THRESHOLDS["error_rate_critical"]
+        or observed_latency >= HEALTH_THRESHOLDS["latency_critical_ms"]
     ):
         return "critical"
     if (
-        error_rate >= HEALTH_THRESHOLDS["error_rate_degraded"]
-        or latency_ms >= HEALTH_THRESHOLDS["latency_degraded_ms"]
+        observed_error >= HEALTH_THRESHOLDS["error_rate_degraded"]
+        or observed_latency >= HEALTH_THRESHOLDS["latency_degraded_ms"]
     ):
         return "degraded"
     return "healthy"
@@ -124,6 +154,50 @@ def calculate_system_health(
     return max(0, min(100, int(round(score))))
 
 
+CUSTOMER_TARGET_FILTER = (
+    'http_target!~"/health|/health/ready|/ops.*|/internal.*|/docs|/redoc|/openapi.json"'
+)
+
+
+async def _service_card_metrics(collector, service_name: str) -> dict[str, float | None]:
+    """Prefer the app HTTP counters, then the FastAPI duration histogram."""
+    window = f"{WINDOW_MINUTES}m"
+    app_requests = await collector.query_scalar(
+        f'sum(increase(app_http_request_count_total{{service_name="{service_name}"}}[{window}]))'
+    )
+    if app_requests is not None:
+        return summarize_service_traffic(
+            telemetry_present=True,
+            request_count=app_requests,
+            error_count=await collector.query_scalar(
+                f'sum(increase(app_http_error_count_total{{service_name="{service_name}"}}[{window}]))'
+            ),
+            duration_total=await collector.query_scalar(
+                f'sum(increase(app_http_request_duration_seconds_sum{{service_name="{service_name}"}}[{window}]))'
+            ),
+            duration_unit="s",
+        )
+
+    present = await collector.query_scalar(
+        f'count(http_server_duration_milliseconds_count{{service_name="{service_name}"}})'
+    )
+    selector = f'service_name="{service_name}",{CUSTOMER_TARGET_FILTER}'
+    return summarize_service_traffic(
+        telemetry_present=present is not None and present > 0,
+        request_count=await collector.query_scalar(
+            f"sum(increase(http_server_duration_milliseconds_count{{{selector}}}[{window}]))"
+        ),
+        error_count=await collector.query_scalar(
+            "sum(increase(http_server_duration_milliseconds_count{"
+            f'{selector},http_status_code=~"5.."}}[{window}]))'
+        ),
+        duration_total=await collector.query_scalar(
+            f"sum(increase(http_server_duration_milliseconds_sum{{{selector}}}[{window}]))"
+        ),
+        duration_unit="ms",
+    )
+
+
 @router.get(
     "/services",
     response_model=ServicesListResponse,
@@ -145,41 +219,20 @@ async def get_services_telemetry():
 
     for service_name in monitored_services:
         is_up = await is_service_reachable(service_name)
-
-        rpm_query = (
-            f'sum(rate(app_http_request_count_total{{service_name="{service_name}"}}[5m])) * 60'
+        metrics = await _service_card_metrics(collector, service_name)
+        status = determine_service_status(
+            metrics["error_rate"],
+            metrics["average_latency_ms"],
+            is_up=is_up,
         )
-        err_query = (
-            f'(sum(rate(app_http_error_count_total{{service_name="{service_name}"}}[5m])) / '
-            f'sum(rate(app_http_request_count_total{{service_name="{service_name}"}}[5m]))) * 100'
-        )
-        lat_query = (
-            f'(sum(rate(app_http_request_duration_seconds_sum{{service_name="{service_name}"}}[5m])) / '
-            f'sum(rate(app_http_request_duration_seconds_count{{service_name="{service_name}"}}[5m]))) * 1000'
-        )
-
-        rpm = await collector.query_scalar(rpm_query)
-        err = await collector.query_scalar(err_query, default=0.0)
-        lat = await collector.query_scalar(lat_query, default=0.0)
-
-        # Zero-traffic handling: if reachable but no HTTP requests in 5m window, treat as 0 req/min, 0% err, 0ms latency (healthy)
-        final_rpm = round(rpm, 1) if rpm is not None else 0.0
-        final_err = (
-            round(err, 2) if (err is not None and rpm and rpm > 0) else 0.0
-        )
-        final_lat = (
-            round(lat, 1) if (lat is not None and rpm and rpm > 0) else 0.0
-        )
-
-        status = determine_service_status(final_err, final_lat, is_up=is_up)
 
         services.append(
             ServiceHealthItem(
                 name=service_name,
                 status=status,
-                requests_per_minute=final_rpm,
-                average_latency_ms=final_lat,
-                error_rate=final_err,
+                requests_per_minute=metrics["requests_per_minute"],
+                average_latency_ms=metrics["average_latency_ms"],
+                error_rate=metrics["error_rate"],
             )
         )
 
@@ -215,16 +268,27 @@ async def get_dashboard_overview(db: Session = Depends(get_db)):
     )
     total_services_count = len(services_list)
 
-    total_rpm = sum(s.requests_per_minute for s in services_list)
+    total_rpm = sum((s.requests_per_minute or 0.0) for s in services_list)
     active_latencies = [
-        s.average_latency_ms for s in services_list if s.requests_per_minute > 0
+        s.average_latency_ms
+        for s in services_list
+        if s.average_latency_ms is not None and (s.requests_per_minute or 0.0) > 0
     ]
     overall_latency = (
         sum(active_latencies) / len(active_latencies)
         if active_latencies
         else 0.0
     )
-    overall_err_rate = 0.0
+    weighted_errors = [
+        (s.error_rate, s.requests_per_minute)
+        for s in services_list
+        if s.error_rate is not None and (s.requests_per_minute or 0.0) > 0
+    ]
+    overall_err_rate = (
+        sum(rate * rpm for rate, rpm in weighted_errors) / sum(rpm for _, rpm in weighted_errors)
+        if weighted_errors
+        else 0.0
+    )
 
     system_health_score = calculate_system_health(
         error_rate=overall_err_rate,
